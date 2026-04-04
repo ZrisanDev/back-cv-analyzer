@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from typing import Callable
 
 from fastapi import FastAPI, Request, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -68,6 +69,37 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Database engine disposed")
 
 
+# ── Custom CORS middleware for development (allows dynamic ngrok URLs)
+
+
+class DynamicCORSMiddleware(BaseHTTPMiddleware):
+    """Custom CORS middleware that allows any origin dynamically.
+
+    This is needed because FastAPI's CORSMiddleware doesn't support
+    allow_origins=["*"] with allow_credentials=True, and ngrok generates
+    dynamic URLs that change on every restart.
+    """
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        origin = request.headers.get("origin")
+
+        # For OPTIONS preflight requests
+        if request.method == "OPTIONS":
+            response = Response(status_code=200)
+        else:
+            response = await call_next(request)
+
+        # Add CORS headers to allow any origin
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Expose-Headers"] = "*"
+
+        return response
+
+
 # ── Request-logging middleware ─────────────────────────────────────────
 
 
@@ -105,15 +137,8 @@ def create_app() -> FastAPI:
     # 1. Request logging (added first → inner layer)
     application.middleware("http")(_request_logging_middleware)
 
-    # 2. CORS (added last → outermost — handles OPTIONS preflight first)
-    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # 2. Custom CORS middleware (allows dynamic ngrok URLs for development)
+    application.add_middleware(DynamicCORSMiddleware)
 
     # ── Routers ───────────────────────────────────────────
     application.include_router(auth_router, prefix="/api")

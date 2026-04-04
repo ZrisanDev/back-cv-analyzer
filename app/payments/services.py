@@ -286,7 +286,7 @@ async def create_preference(
                 "title": "Análisis de CV",
                 "quantity": 1,
                 "unit_price": effective_amount,
-                "currency_id": "PEN",
+                "currency_id": "USD",
             }
         ],
         "back_urls": {
@@ -296,6 +296,7 @@ async def create_preference(
         },
         "auto_return": "approved",
         "external_reference": str(user_id),
+        "binary_mode": True,  # Solo rechaza si falla la autenticación
     }
 
     logger.info(
@@ -415,7 +416,7 @@ async def create_credit_package_preference(
                 ),
                 "quantity": 1,
                 "unit_price": package.price_usd,
-                "currency_id": "PEN",
+                "currency_id": "USD",
             }
         ],
         "back_urls": {
@@ -425,6 +426,7 @@ async def create_credit_package_preference(
         },
         "auto_return": "approved",
         "external_reference": str(user_id),
+        "binary_mode": True,  # Solo rechaza si falla la autenticación
     }
 
     logger.info(

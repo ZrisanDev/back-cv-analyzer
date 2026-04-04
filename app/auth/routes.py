@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -154,7 +154,6 @@ async def refresh(
 
 @router.post(
     "/logout",
-    status_code=status.HTTP_204_NO_CONTENT,
     summary="Revoke tokens and end the session",
 )
 async def logout(
@@ -162,7 +161,7 @@ async def logout(
     request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> Response:
     """Blacklist the access token (from the Authorization header) and
     optionally the refresh token provided in the request body.
 
@@ -206,6 +205,7 @@ async def logout(
             pass  # Ignore invalid or expired refresh token
 
     await db.flush()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ── Protected route example ─────────────────────────────────

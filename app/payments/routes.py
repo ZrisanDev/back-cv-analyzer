@@ -183,6 +183,70 @@ async def mercadopago_webhook(
     return result
 
 
+# ── Get payment status by MercadoPago payment ID (PUBLIC) ────────────
+
+
+@router.get(
+    "/status",
+    summary="Get payment status by MercadoPago payment ID (public)",
+)
+async def get_payment_status(
+    payment_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get the current status of a payment by its MercadoPago payment ID.
+
+    This endpoint is PUBLIC — no authentication required.
+    Used by the frontend to verify payment status after MercadoPago redirect.
+
+    Args:
+        payment_id: The MercadoPago payment ID (from query params)
+
+    Returns:
+        Dict with payment details in the format expected by the frontend.
+    """
+    # Try to find payment by mercadopago_payment_id first
+    result = await db.execute(
+        select(Payment).where(Payment.mercadopago_payment_id == payment_id)
+    )
+    payment = result.scalar_one_or_none()
+
+    # If not found, try by preference_id (for legacy support)
+    if not payment:
+        result = await db.execute(
+            select(Payment).where(Payment.mercadopago_preference_id == payment_id)
+        )
+        payment = result.scalar_one_or_none()
+
+    if not payment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payment not found.",
+        )
+
+    # Sync status from MercadoPago for accuracy
+    if payment.mercadopago_payment_id:
+        try:
+            from app.payments.services import _sync_payment_status_from_mp
+            await _sync_payment_status_from_mp(db, payment, payment.mercadopago_payment_id)
+        except Exception as exc:
+            logger.warning(
+                "Failed to sync payment %s from MercadoPago: %s",
+                payment_id,
+                exc,
+            )
+
+    # Return in the format expected by the frontend
+    return {
+        "paymentId": payment_id,
+        "status": payment.status.value,
+        "amount": payment.amount,
+        "currency": payment.currency,
+        "dateApproved": None,  # Could be added from MercadoPago response
+        "payerEmail": None,  # Could be added from MercadoPago response
+    }
+
+
 # ── Get payment by ID ─────────────────────────────────────────
 
 
