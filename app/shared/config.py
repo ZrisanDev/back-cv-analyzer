@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # ── MercadoPago ───────────────────────────────────────
     mercadopago_access_token: str = ""
     mercadopago_public_key: str = ""
+    mercadopago_webhook_secret: str = ""
 
     # ── AI Providers ──────────────────────────────────────
     gemini_api_key: str = ""
@@ -51,7 +52,10 @@ class Settings(BaseSettings):
     analysis_price_usd: float = 2.99
 
     # ── CORS ──────────────────────────────────────────────
-    cors_origins: str = "http://localhost:3000,http://localhost:5173"
+    cors_origins: str = "https://astounding-mermaid-567c0a.netlify.app,http://localhost:3000,http://localhost:5173"
+
+    # ── Frontend ──────────────────────────────────────────
+    frontend_base_url: str = "https://astounding-mermaid-567c0a.netlify.app"
 
     # ── App ───────────────────────────────────────────────
     app_version: str = "0.1.0"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import (
@@ -20,21 +21,21 @@ from app.payments.models import CreditPackage, Payment
 from app.payments.schemas import (
     CreditPackageCreate,
     CreditPackageResponse,
-    CreditPackageType,
     PaymentCreate,
     PaymentResponse,
     PreferenceResponse,
     UserCreditsResponse,
-    WebhookPayload,
 )
 from app.payments.services import (
+    _verify_webhook_signature,
     create_credit_package_preference,
     create_preference,
     get_user_credits,
     process_webhook,
 )
-from app.shared.config import settings
 from app.shared.database import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
@@ -147,7 +148,31 @@ async def mercadopago_webhook(
 
     The endpoint is **idempotent**: duplicate notifications are handled safely
     by fetching the latest status directly from MercadoPago.
+
+    **Security**: Validates x-signature header to ensure notifications
+    come from MercadoPago. Configure MERCADOPAGO_WEBHOOK_SECRET in .env
     """
+    # Extract headers for signature verification
+    x_signature = request.headers.get("x-signature")
+    x_request_id = request.headers.get("x-request-id")
+
+    # Extract query params for signature verification
+    query_params = request.query_params
+    data_id = query_params.get("data.id")
+
+    # Verify webhook signature
+    if not _verify_webhook_signature(x_signature, x_request_id, data_id):
+        logger.warning(
+            "Received webhook with invalid signature. data_id=%s, x-request-id=%s",
+            data_id,
+            x_request_id,
+        )
+        # Return 401 to reject invalid webhooks
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid webhook signature",
+        )
+
     try:
         payload = await request.json()
     except Exception:

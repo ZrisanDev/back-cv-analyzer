@@ -25,9 +25,9 @@ class Status(str):
 class CreditPackageType(str, Enum):
     """Credit package types available for purchase."""
 
-    PACK_20 = "pack_20"
-    PACK_50 = "pack_50"
-    PACK_100 = "pack_100"
+    pack_20 = "pack_20"
+    pack_50 = "pack_50"
+    pack_100 = "pack_100"
 
 
 # ── Request schemas ───────────────────────────────────────────

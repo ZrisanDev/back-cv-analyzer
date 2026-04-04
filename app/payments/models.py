@@ -40,9 +40,9 @@ class CreditPackageType(str, enum.Enum):
     - pack_100: 100 analyses
     """
 
-    PACK_20 = "pack_20"
-    PACK_50 = "pack_50"
-    PACK_100 = "pack_100"
+    pack_20 = "pack_20"
+    pack_50 = "pack_50"
+    pack_100 = "pack_100"
 
 
 class CreditPackage(Base):

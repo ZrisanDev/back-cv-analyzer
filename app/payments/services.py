@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
+import urllib.parse
 from typing import Any
 
 import mercadopago
@@ -33,7 +36,7 @@ logger = logging.getLogger(__name__)
 def _get_mp_client() -> mercadopago.SDK:
     """Create a MercadoPago SDK client instance.
 
-    Reuses the access token from settings. Each call creates a new
+    Reuses access token from settings. Each call creates a new
     instance to avoid state leakage between requests.
     """
     if not settings.mercadopago_access_token:
@@ -42,6 +45,87 @@ def _get_mp_client() -> mercadopago.SDK:
             detail="MercadoPago is not configured. Set MERCADOPAGO_ACCESS_TOKEN.",
         )
     return mercadopago.SDK(settings.mercadopago_access_token)
+
+
+def _verify_webhook_signature(
+    x_signature: str | None,
+    x_request_id: str | None,
+    data_id: str | None,
+) -> bool:
+    """Verify MercadoPago webhook x-signature header.
+
+    Validates that the webhook notification came from MercadoPago by
+    comparing the HMAC-SHA256 signature in the x-signature header.
+
+    Args:
+        x_signature: Value from the 'x-signature' request header
+        x_request_id: Value from the 'x-request-id' request header
+        data_id: The 'data.id' query parameter value
+
+    Returns:
+        True if signature is valid, False otherwise
+
+    Validation process:
+    1. Parse x-signature header to extract 'ts' (timestamp) and 'v1' (hash)
+    2. Build manifest string: "id:{data_id};request-id:{x_request_id};ts:{ts};"
+    3. Calculate HMAC-SHA256 using the webhook secret key
+    4. Compare calculated hash with v1 from x-signature
+
+    Reference: https://www.mercadopago.com.ar/developers/es/docs/checkout-v1/webhooks/signatures
+    """
+    if not settings.mercadopago_webhook_secret:
+        logger.warning(
+            "Webhook signature verification skipped: MERCADOPAGO_WEBHOOK_SECRET not configured"
+        )
+        return True  # Allow webhook without verification if secret not set (dev mode)
+
+    if not x_signature or not x_request_id or not data_id:
+        logger.warning(
+            "Webhook signature verification failed: missing required headers/params"
+        )
+        return False
+
+    # Parse x-signature header (format: "ts=...,v1=...")
+    parts = x_signature.split(",")
+    ts = None
+    signature_hash = None
+
+    for part in parts:
+        key_value = part.split("=", 1)
+        if len(key_value) == 2:
+            key = key_value[0].strip()
+            value = key_value[1].strip()
+            if key == "ts":
+                ts = value
+            elif key == "v1":
+                signature_hash = value
+
+    if not ts or not signature_hash:
+        logger.warning(
+            "Webhook signature verification failed: could not parse x-signature"
+        )
+        return False
+
+    # Build manifest string following MercadoPago specification
+    manifest = f"id:{data_id};request-id:{x_request_id};ts:{ts};"
+
+    # Calculate HMAC-SHA256 using the webhook secret
+    hmac_obj = hmac.new(
+        settings.mercadopago_webhook_secret.encode(),
+        msg=manifest.encode(),
+        digestmod=hashlib.sha256,
+    )
+    calculated_hash = hmac_obj.hexdigest()
+
+    # Compare hashes
+    is_valid = hmac.compare_digest(calculated_hash, signature_hash)
+
+    if not is_valid:
+        logger.warning("Webhook signature verification failed: hash mismatch")
+    else:
+        logger.info("Webhook signature verified successfully")
+
+    return is_valid
 
 
 # ── User Credits ───────────────────────────────────────────────
@@ -202,17 +286,26 @@ async def create_preference(
                 "title": "Análisis de CV",
                 "quantity": 1,
                 "unit_price": effective_amount,
-                "currency_id": "USD",
+                "currency_id": "PEN",
             }
         ],
         "back_urls": {
-            "success": "https://localhost/success",
-            "failure": "https://localhost/failure",
-            "pending": "https://localhost/pending",
+            "success": f"{settings.frontend_base_url}/payment/success",
+            "failure": f"{settings.frontend_base_url}/payment/failure",
+            "pending": f"{settings.frontend_base_url}/payment/pending",
         },
         "auto_return": "approved",
         "external_reference": str(user_id),
     }
+
+    logger.info(
+        "Creating MercadoPago preference with base_url: %s",
+        settings.frontend_base_url,
+    )
+    logger.info(
+        "Back URLs: %s",
+        preference_data.get("back_urls"),
+    )
 
     try:
         mp_response = mp.preference().create(preference_data)
@@ -309,9 +402,9 @@ async def create_credit_package_preference(
 
     # Map package type to readable title
     title_map = {
-        CreditPackageType.PACK_20: "Pack 20 Análisis de CV",
-        CreditPackageType.PACK_50: "Pack 50 Análisis de CV",
-        CreditPackageType.PACK_100: "Pack 100 Análisis de CV",
+        CreditPackageType.pack_20: "Pack 20 Análisis de CV",
+        CreditPackageType.pack_50: "Pack 50 Análisis de CV",
+        CreditPackageType.pack_100: "Pack 100 Análisis de CV",
     }
 
     preference_data: dict[str, Any] = {
@@ -322,17 +415,26 @@ async def create_credit_package_preference(
                 ),
                 "quantity": 1,
                 "unit_price": package.price_usd,
-                "currency_id": "USD",
+                "currency_id": "PEN",
             }
         ],
         "back_urls": {
-            "success": "https://localhost/success",
-            "failure": "https://localhost/failure",
-            "pending": "https://localhost/pending",
+            "success": f"{settings.frontend_base_url}/payment/success",
+            "failure": f"{settings.frontend_base_url}/payment/failure",
+            "pending": f"{settings.frontend_base_url}/payment/pending",
         },
         "auto_return": "approved",
         "external_reference": str(user_id),
     }
+
+    logger.info(
+        "Creating MercadoPago preference with base_url: %s",
+        settings.frontend_base_url,
+    )
+    logger.info(
+        "Back URLs: %s",
+        preference_data.get("back_urls"),
+    )
 
     try:
         mp_response = mp.preference().create(preference_data)
