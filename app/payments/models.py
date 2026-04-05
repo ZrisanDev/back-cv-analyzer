@@ -117,12 +117,6 @@ class Payment(Base):
         nullable=False,
         index=True,
     )
-    analysis_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("analyses.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
     amount: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str] = mapped_column(
         String(3),
@@ -150,6 +144,27 @@ class Payment(Base):
         String(64),
         nullable=True,
         index=True,
+    )
+    # Additional MercadoPago payment details
+    status_detail: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="MercadoPago status detail (e.g., accredited, pending_contingency)",
+    )
+    date_approved: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When payment was approved",
+    )
+    payment_method_id: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="MercadoPago payment method used (e.g., credit_card, debit_card)",
+    )
+    payer_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Email of the payer from MercadoPago",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

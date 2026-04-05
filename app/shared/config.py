@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     mercadopago_access_token: str = ""
     mercadopago_public_key: str = ""
     mercadopago_webhook_secret: str = ""
+    mercadopago_webhook_url: str = ""
 
     # ── AI Providers ──────────────────────────────────────
     gemini_api_key: str = ""

@@ -1,6 +1,6 @@
-# Skill Registry - back-analyzer-cv
+# Skill Registry - back-cv-analyzer
 
-**Generated**: Fri Apr 03 2026
+**Generated**: Sat Apr 04 2026
 **Mode**: engram
 
 ## User-Level Skills
@@ -33,7 +33,7 @@
 
 | Skill | Description | Trigger |
 |-------|-------------|---------|
-| go-testing | Go testing patterns | Go tests, Bubbletea TUI testing, using teatest |
+| go-testing | Go testing patterns | Writing Go tests, using teatest, or adding test coverage |
 
 ## Project Conventions
 
@@ -46,7 +46,7 @@
 **Python / FastAPI**:
 - Use async/await for all database and I/O operations
 - Pydantic models for validation and settings (BaseSettings with .env file)
-- SQLAlchemy 2.0 async models with mapped_column ( declarative)
+- SQLAlchemy 2.0 async models with mapped_column (declarative)
 - Dependency injection via FastAPI's Depends() for database sessions
 - Pydantic v2 schemas (not v1)
 - HTTP exception handling with FastAPI's HTTPException
@@ -66,8 +66,8 @@
 
 **Testing**:
 - No test framework currently installed
-- TDD unavailable until pytest is added
-- Consider adding: pytest, pytest-asyncio, pytest-cov, httpx for testing
+- Strict TDD Mode: disabled (no test runner detected)
+- To enable TDD, add: pytest, pytest-asyncio, pytest-cov, httpx
 
 **Code Quality**:
 - .ruff_cache exists but ruff not in requirements.txt - consider adding ruff for linting

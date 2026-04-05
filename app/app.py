@@ -90,12 +90,19 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
 
         # Add CORS headers to allow any origin
+        # IMPORTANT: Add headers to OPTIONS response as well
         if origin:
             response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Methods"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        # Explicitly list headers including Authorization and ngrok headers (wildcard * doesn't work with Authorization)
+        response.headers["Access-Control-Allow-Headers"] = (
+            "Content-Type, Authorization, X-Requested-With, Accept, Origin, "
+            "Access-Control-Request-Method, Access-Control-Request-Headers, "
+            "ngrok-skip-browser-warning"
+        )
         response.headers["Access-Control-Expose-Headers"] = "*"
+        response.headers["Access-Control-Max-Age"] = "86400"  # 24 hours for preflight cache
 
         return response
 
