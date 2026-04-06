@@ -65,14 +65,16 @@ async def score_evolution(
 @router.get(
     "/missing-keywords",
     response_model=MissingKeywordStats,
-    summary="Get top missing keywords across analyses",
+    summary="Get top 5 missing keywords across analyses",
 )
 async def missing_keywords(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> MissingKeywordStats:
-    """Aggregate the most frequently missing keywords across all of the
+    """Aggregate most frequently missing keywords across all of
     user's completed analyses.
+
+    Returns the TOP 5 most common missing keywords.
 
     Each keyword includes:
     - ``missing_count``: how many analyses flagged it as missing

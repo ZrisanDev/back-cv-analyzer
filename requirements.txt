@@ -38,4 +38,4 @@ aiosmtplib==3.0.2
 # ── AI Providers ──────────────────────────────────────────
 google-genai==1.70.0
 cerebras-cloud-sdk==1.67.0
-groq==0.18.0
+groq==1.1.2

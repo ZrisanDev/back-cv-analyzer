@@ -142,12 +142,12 @@ async def get_missing_keywords(
     if total_completed == 0:
         return MissingKeywordStats(keywords=[])
 
-    # Fetch all keywords_missing lists from completed analyses
-    stmt = select(Analysis.analysis_result["keywords_missing"]).where(
+    # Fetch all missing_keywords lists from completed analyses
+    stmt = select(Analysis.analysis_result["missing_keywords"]).where(
         Analysis.user_id == user_id,
         Analysis.status == AnalysisStatus.COMPLETED,
         Analysis.analysis_result.isnot(None),
-        Analysis.analysis_result["keywords_missing"].isnot(None),
+        Analysis.analysis_result["missing_keywords"].isnot(None),
     )
     result = await db.execute(stmt)
     rows = result.all()
@@ -160,14 +160,14 @@ async def get_missing_keywords(
                 if isinstance(kw, str) and kw.strip():
                     counter[kw.strip()] += 1
 
-    # Build response, sorted by missing_count descending
+    # Build response, sorted by missing_count descending (TOP 5)
     keyword_items = [
         MissingKeywordItem(
             keyword=keyword,
             missing_count=count,
             percentage=round((count / total_completed) * 100, 1),
         )
-        for keyword, count in counter.most_common()
+        for keyword, count in counter.most_common(5)  # Solo TOP 5
     ]
 
     return MissingKeywordStats(keywords=keyword_items)
