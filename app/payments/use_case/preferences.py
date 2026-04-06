@@ -195,6 +195,7 @@ async def _build_and_create_mp_preference(
         status=PaymentStatus.PENDING,
         mercadopago_preference_id=str(preference_id),
         package_type=package_type,
+        external_reference=str(user_id),  # Store the external_reference for webhook matching
     )
     db.add(payment)
     await db.flush()

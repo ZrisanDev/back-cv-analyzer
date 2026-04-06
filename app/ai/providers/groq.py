@@ -41,6 +41,7 @@ class GroqProvider(AIProvider):
                 "Groq provider is not available — check GROQ_API_KEY",
             )
 
+        logger.info("Groq using model: %s", settings.groq_model)
         messages = self._build_messages(cv_text, job_description)
 
         try:

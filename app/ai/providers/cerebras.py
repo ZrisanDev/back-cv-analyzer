@@ -43,6 +43,7 @@ class CerebrasProvider(AIProvider):
                 "Cerebras provider is not available — check CEREBRAS_API_KEY",
             )
 
+        logger.info("Cerebras using model: %s", settings.cerebras_model)
         messages = self._build_messages(cv_text, job_description)
 
         try:

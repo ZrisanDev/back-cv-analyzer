@@ -2,16 +2,28 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 from typing import Any
 
-import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException, status
+from playwright.async_api import async_playwright
 from pypdf import PdfReader
 
 logger = logging.getLogger(__name__)
+logger.error("="*80)
+logger.error("🔥🔥🔥 ANALYSIS MODULE LOADED - VERSION 2025-04-06 - SHOULD FALLBACK TO GROQ 🔥🔥🔥")
+logger.error("="*80)
+
+logger = logging.getLogger(__name__)
+
+# ── Playwright Configuration ────────────────────────────────
+
+PLAYWRIGHT_TIMEOUT = 30000  # 30 seconds
+MAX_RETRIES = 3
+RETRY_DELAY = 2.0  # seconds
 
 # ── Constants ─────────────────────────────────────────────────
 
@@ -69,6 +81,12 @@ async def scrape_job_description(url: str) -> str:
     - Indeed (indeed.com)
     - Bommerang (bommerang.com)
 
+    Uses Playwright to execute JavaScript and bypass anti-bot protections:
+    - Headless browser (Chromium)
+    - Executes JavaScript
+    - Handles cookies and sessions
+    - Simulates real browser fingerprint
+
     Args:
         url: The public URL of the job posting.
 
@@ -80,31 +98,104 @@ async def scrape_job_description(url: str) -> str:
     """
     _validate_job_url(url)
 
-    try:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=30.0,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/125.0.0.0 Safari/537.36"
-                ),
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-            },
-        ) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-    except httpx.HTTPError as exc:
-        logger.warning("Scraping HTTP error for %s: %s", url, exc)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Could not fetch the job posting URL. Error: {exc}",
-        ) from exc
+    last_error: Exception | None = None
 
-    raw_html = response.text
-    return _parse_job_html(raw_html, url)
+    # Retry loop with Playwright
+    for attempt in range(MAX_RETRIES):
+        try:
+            logger.info("Scraping attempt %d/%d for %s", attempt + 1, MAX_RETRIES, url)
+
+            async with async_playwright() as p:
+                # Launch browser with anti-bot settings
+                browser = await p.chromium.launch(
+                    headless=True,  # Run in headless mode
+                    args=[
+                        "--disable-blink-features=AutomationControlled",  # Hide automation
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                    ],
+                )
+
+                # Create browser context with realistic settings
+                context = await browser.new_context(
+                    viewport={"width": 1920, "height": 1080},
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/131.0.0.0 Safari/537.36"
+                    ),
+                    locale="en-US",
+                    timezone_id="America/New_York",
+                    permissions=["geolocation"],
+                    # Hide automation signals
+                    color_scheme="light",
+                )
+
+                # Create page with anti-detection
+                page = await context.new_page()
+
+                # Override navigator.webdriver to undefined (anti-bot technique)
+                await page.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined,
+                    });
+
+                    // Override chrome object
+                    window.chrome = {
+                        runtime: {},
+                    };
+
+                    // Override permissions
+                    const originalQuery = window.navigator.permissions.query;
+                    window.navigator.permissions.query = (parameters) => (
+                        parameters.name === 'notifications' ?
+                            Promise.resolve({ state: Notification.permission }) :
+                            originalQuery(parameters)
+                    );
+                """)
+
+                # Navigate to URL with timeout
+                await page.goto(
+                    url,
+                    wait_until="networkidle",  # Wait for network to be idle
+                    timeout=PLAYWRIGHT_TIMEOUT,
+                )
+
+                # Wait for job description to load (Indeed uses dynamic loading)
+                await page.wait_for_timeout(2000)  # 2 seconds for dynamic content
+
+                # Get the HTML content after JavaScript execution
+                html_content = await page.content()
+
+                # Close browser
+                await browser.close()
+
+                # Parse and extract text
+                result = _parse_job_html(html_content, url)
+
+                logger.info("Successfully scraped %s on attempt %d", url, attempt + 1)
+                return result
+
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "Scraping attempt %d failed for %s: %s",
+                attempt + 1,
+                url,
+                exc,
+            )
+
+            # If not the last attempt, wait before retrying
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(RETRY_DELAY * (attempt + 1))  # Exponential backoff
+
+    # All attempts failed
+    logger.error("All %d scraping attempts failed for %s", MAX_RETRIES, url)
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Could not fetch the job posting URL after {MAX_RETRIES} attempts. "
+        f"Last error: {last_error}",
+    ) from last_error
 
 
 def _validate_job_url(url: str) -> None:
@@ -196,17 +287,18 @@ async def _perform_analysis(analysis_id: str, db_session_factory: Any) -> None:
     This is the function passed to ``FastAPI.BackgroundTasks``.
     It updates the analysis record from ``pending`` → ``processing`` → ``completed``/``failed``.
 
-    NOTE: The actual AI analysis will be wired in a future phase.
-    For now this extracts/stores text and marks the analysis as completed
-    with a placeholder result.
+    Uses the AIAnalyzerService with fallback chain: Gemini → Cerebras → Groq → Ollama.
     """
+    logger.info("🚀 _perform_analysis STARTED for analysis_id=%s", analysis_id)
     from app.analysis.models import Analysis, AnalysisStatus
+    from app.ai.service import AIAnalyzerService
     from app.shared.database import async_session_factory as _factory
 
     factory = db_session_factory or _factory
     async with factory() as db:
         from sqlalchemy import select
 
+        logger.info("📊 Database session created")
         result = await db.execute(
             select(Analysis).where(Analysis.id == analysis_id),
         )
@@ -215,27 +307,47 @@ async def _perform_analysis(analysis_id: str, db_session_factory: Any) -> None:
             logger.error("Analysis %s not found in background task", analysis_id)
             return
 
+        logger.info("✅ Analysis found: %s", analysis_id)
+
         # Mark as processing
         analysis.status = AnalysisStatus.PROCESSING
         await db.flush()
+        logger.info("⏳ Status changed to PROCESSING")
 
         try:
-            # --- Actual AI analysis will be added in the AI module phase ---
-            # For now, store a placeholder so the flow is end-to-end testable.
-            placeholder_result = {
-                "summary": "Analysis pending AI integration.",
-                "compatibility": 0,
-                "keywords_present": [],
-                "keywords_missing": [],
-                "strengths": [],
-                "weaknesses": [],
-            }
+            # Initialize AI service with fallback chain
+            logger.info("🔧 Initializing AIAnalyzerService...")
+            ai_service = AIAnalyzerService()
 
+            logger.info(
+                "Starting analysis %s with providers: %s",
+                analysis_id,
+                ai_service.provider_names,
+            )
+
+            # Run CV analysis with fallback chain
+            logger.info("🚀 Calling ai_service.analyze_cv()...")
+            ai_result = await ai_service.analyze_cv(
+                cv_text=analysis.cv_text,
+                job_description=analysis.job_description,
+            )
+            logger.info("✅ ai_service.analyze_cv() returned successfully!")
+
+            # Convert AnalysisResponse to dict for storage
+            result_dict = ai_result.model_dump()
+
+            # Store the full analysis result
             analysis.status = AnalysisStatus.COMPLETED
-            analysis.analysis_result = placeholder_result
-            analysis.compatibility_score = 0  # Will be real score from AI
+            analysis.analysis_result = result_dict
+            analysis.compatibility_score = ai_result.compatibility_score
             await db.flush()
             await db.commit()
+
+            logger.info(
+                "Analysis %s completed with score %d",
+                analysis_id,
+                ai_result.compatibility_score,
+            )
 
         except Exception as exc:
             logger.exception("Analysis %s failed", analysis_id)

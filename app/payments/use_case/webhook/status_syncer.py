@@ -126,6 +126,15 @@ async def sync_payment_status_from_mp(
                     "Failed to parse date_approved: %s", exc
                 )
 
+        # Store external_reference if not already set
+        if mp_external_reference and not payment.external_reference:
+            payment.external_reference = mp_external_reference
+            logger.info(
+                "Stored external_reference for payment %s: %s",
+                payment.id,
+                mp_external_reference,
+            )
+
         # If this is a credit package payment and was just approved, handle it
         if (
             new_status == PaymentStatus.APPROVED

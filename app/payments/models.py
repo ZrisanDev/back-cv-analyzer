@@ -145,6 +145,12 @@ class Payment(Base):
         nullable=True,
         index=True,
     )
+    external_reference: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+        comment="External reference from Mercado Pago (typically user_id or tracking ID)",
+    )
     # Additional MercadoPago payment details
     status_detail: Mapped[str | None] = mapped_column(
         String(50),

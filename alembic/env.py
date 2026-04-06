@@ -14,8 +14,10 @@ config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
 # Interpret the config file for Python logging (if configured)
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# NOTE: Disabled because alembic.ini doesn't have a [formatters] section
+# We'll use FastAPI logging instead
+# if config.config_file_name is not None:
+#     fileConfig(config.config_file_name)
 
 # Meta-data target for autogenerate support
 target_metadata = Base.metadata

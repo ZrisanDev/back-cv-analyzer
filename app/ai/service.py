@@ -1,6 +1,6 @@
 """AI Analyzer Service — orchestrates providers with fallback and retry logic.
 
-Fallback chain:  Gemini → Cerebras → Groq → Ollama
+Fallback chain:  Gemini → Groq → Cerebras → Ollama
 - Each provider gets up to ``ai_max_retries`` attempts with exponential backoff.
 - Provider health is tracked (successes / failures) for observability.
 - When all providers are exhausted, a ``RuntimeError`` is raised.
@@ -21,7 +21,9 @@ from app.ai.schemas import AnalysisResponse
 from app.shared.config import settings
 
 logger = logging.getLogger(__name__)
-
+logger.error("="*80)
+logger.error("🔥🔥🔥 AI SERVICE MODULE LOADED - VERSION 2025-04-06 - GROQ IS SECOND PROVIDER 🔥🔥🔥")
+logger.error("="*80)
 
 # ── Health tracking ────────────────────────────────────────────────────
 
@@ -74,10 +76,12 @@ class AIAnalyzerService:
         providers: list[AIProvider] | None = None,
         retry_config: RetryConfig | None = None,
     ) -> None:
+        # Ordered by model quality: Gemini (if quota) → Groq (70b) → Cerebras (8b) → Ollama (local)
+        # NOTE: If you see 'cerebras' being tried before 'groq', code is up to date
         self._providers = providers or [
             GeminiProvider(),
-            CerebrasProvider(),
             GroqProvider(),
+            CerebrasProvider(),
             OllamaProvider(),
         ]
         self._retry = retry_config or RetryConfig(
@@ -109,28 +113,51 @@ class AIAnalyzerService:
         Raises:
             RuntimeError: When every provider has been exhausted.
         """
+        logger.info("Starting CV analysis with fallback chain: %s", self.provider_names)
+        logger.info("CV text length: %d chars", len(cv_text))
+        logger.info("Job description length: %d chars", len(job_description))
         last_error: Exception | None = None
 
-        for provider in self._providers:
+        for idx, provider in enumerate(self._providers):
             if not provider.is_available:
                 logger.info(
-                    "Skipping %s — provider is not configured / available",
+                    "⏭️  Skipping %s (%d/%d) — provider is not configured / available",
                     provider.name,
+                    idx + 1,
+                    len(self._providers),
                 )
                 continue
 
+            logger.info(
+                "🔄 Trying %s (%d/%d in fallback chain)",
+                provider.name,
+                idx + 1,
+                len(self._providers),
+            )
             result = await self._try_provider(provider, cv_text, job_description)
             if result is not None:
+                logger.info(
+                    "✅ %s succeeded! Analysis completed with score %d",
+                    provider.name,
+                    result.compatibility_score,
+                )
                 return result
             # _try_provider updates health; grab last error for final message
             last_error = ProviderError(
                 provider.name,
                 f"All retries exhausted for {provider.name}",
             )
+            logger.warning(
+                "⚠️  %s failed after all retries, falling back to next provider",
+                provider.name,
+            )
 
+        # All providers exhausted
+        available_providers = [p.name for p in self._providers if p.is_available]
+        logger.error("All providers exhausted. Available: %s", available_providers)
         raise RuntimeError(
-            f"All AI providers failed. "
-            f"Tried: {[p.name for p in self._providers if p.is_available]}. "
+            f"❌ All AI providers failed. "
+            f"Tried: {available_providers}. "
             f"Last error: {last_error}"
         )
 
