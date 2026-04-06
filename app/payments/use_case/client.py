@@ -78,28 +78,10 @@ def _verify_webhook_signature(
 
     # Allow webhooks without data.id (some MercadoPago notifications don't include it)
     if not data_id:
-        logger.warning(
-            "Webhook signature verification: no data.id in params, skipping verification"
-        )
-        return True  # Skip verification for notifications without data.id
-
-    # TEMPORARY: DISABLE signature verification for testing
-    # TODO: Enable this once the webhook_secret is correctly configured in .env
-    logger.warning(
-        "⚠️  SIGNATURE VERIFICATION TEMPORARILY DESACTIVADA PARA TESTING"
-        "Esto permite procesar webhooks aunque la firma no coincida"
-    )
-    return True  # Always return True for now
-
-    # Allow webhooks without data.id (some MercadoPago notifications don't include it)
-    if not data_id:
-        logger.warning(
-            "Webhook signature verification: no data.id in params, skipping verification"
-        )
         return True  # Skip verification for notifications without data.id
 
     # Parse x-signature header: format is "ts={timestamp},v1={hash}"
-    parts = x_signature.split(',')
+    parts = x_signature.split(",")
     ts = None
     v1 = None
 
@@ -114,41 +96,28 @@ def _verify_webhook_signature(
 
     if not ts or not v1:
         logger.warning(
-            "Webhook signature verification: invalid x-signature format: %s", x_signature
+            "Webhook signature verification: invalid x-signature format: %s",
+            x_signature,
         )
         return False
 
     # Build manifest string: "id:{data_id};request-id:{x_request_id};ts:{ts};"
     manifest = f"id:{data_id};request-id:{x_request_id};ts:{ts};"
 
-    # DEBUG: Log all values for verification
-    logger.info("=== Webhook Signature Verification DEBUG ===")
-    logger.info("x_signature header: %s", x_signature)
-    logger.info("x_request_id header: %s", x_request_id)
-    logger.info("data_id: %s", data_id)
-    logger.info("ts from header: %s", ts)
-    logger.info("v1 from header: %s", v1)
-    logger.info("manifest: %s", manifest)
-    logger.info("webhook_secret (first 20 chars): %s", settings.mercadopago_webhook_secret[:20] if settings.mercadopago_webhook_secret else "NOT_SET")
-    logger.info("=== End DEBUG ===")
-
     # Calculate HMAC-SHA256 using the webhook secret key
     webhook_secret = settings.mercadopago_webhook_secret
     calculated_hash = hmac.new(
         webhook_secret.encode(),  # key as bytes
-        manifest.encode(),     # message as bytes
+        manifest.encode(),  # message as bytes
         hashlib.sha256,
     ).hexdigest()
 
     # Compare calculated hash with v1 from x-signature
     if calculated_hash == v1:
-        logger.info(
-            "Webhook signature verification: ✅ VALID (manifest=%s)", manifest
-        )
         return True
     else:
         logger.warning(
-            "Webhook signature verification: ❌ INVALID (expected=%s, got=%s)",
+            "Webhook signature verification: INVALID (expected=%s, got=%s)",
             calculated_hash,
             v1,
         )

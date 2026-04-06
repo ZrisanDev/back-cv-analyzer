@@ -59,18 +59,6 @@ async def sync_payment_status_from_mp(
     mp_date_approved = mp_data.get("date_approved")
     mp_payment_method = mp_data.get("payment_method_id")
 
-    # Log full payment info for debugging
-    logger.warning("=" * 80)
-    logger.warning("MERCADO PAGO - PAYMENT INFO:")
-    logger.warning("  - Payment ID: %s", mp_payment_id)
-    logger.warning("  - Status: %s", mp_status)
-    logger.warning("  - Status Detail: %s", mp_status_detail)
-    logger.warning("  - Transaction Amount: %s", mp_transaction_amount)
-    logger.warning("  - External Reference: %s", mp_external_reference)
-    logger.warning("  - Date Approved: %s", mp_date_approved)
-    logger.warning("  - Payment Method: %s", mp_payment_method)
-    logger.warning("=" * 80)
-
     # Map MercadoPago statuses to our enum
     status_mapping = {
         "approved": PaymentStatus.APPROVED,
@@ -122,9 +110,7 @@ async def sync_payment_status_from_mp(
                         mp_date_approved.replace("Z", "+00:00")
                     )
             except Exception as exc:
-                logger.warning(
-                    "Failed to parse date_approved: %s", exc
-                )
+                logger.warning("Failed to parse date_approved: %s", exc)
 
         # Store external_reference if not already set
         if mp_external_reference and not payment.external_reference:

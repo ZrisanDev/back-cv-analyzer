@@ -159,28 +159,15 @@ async def mercadopago_webhook(
     - data.id={id} (new MercadoPago format)
     - id={id} (old MercadoPago format)
     """
-    logger.warning("=" * 80)
-    logger.warning("MERCADO PAGO - WEBHOOK RECIBIDO")
-    logger.warning("=" * 80)
-
     # Extract headers for signature verification
     x_signature = request.headers.get("x-signature")
     x_request_id = request.headers.get("x-request-id")
-
-    logger.warning("HEADERS:")
-    logger.warning("  - x-signature: %s", x_signature)
-    logger.warning("  - x-request-id: %s", x_request_id)
 
     # Extract query params for signature verification
     # Support both formats: data.id and id
     query_params = request.query_params
     data_id = query_params.get("data.id") or query_params.get("id")
     topic = query_params.get("topic") or query_params.get("type")
-
-    logger.warning("QUERY PARAMS:")
-    logger.warning("  - data.id (or id): %s", data_id)
-    logger.warning("  - topic (or type): %s", topic)
-    logger.warning("  - Todos los params: %s", dict(query_params))
 
     # Verify webhook signature
     if not _verify_webhook_signature(x_signature, x_request_id, data_id):
@@ -197,45 +184,49 @@ async def mercadopago_webhook(
             "received": True,
         }
 
-    logger.warning("✅ Firma válida")
-
     # Parse JSON payload
     try:
         payload = await request.json()
     except Exception as exc:
-        logger.exception("Webhook error parsing JSON: %s", exc)
+        logger.warning("Webhook error parsing JSON: %s", exc)
         # Return 200 with ignored status to avoid Mercado Pago retries
         return {"status": "ignored", "reason": "json_parse_error", "received": True}
-
-    logger.warning("PAYLOAD (JSON recibido):")
-    logger.warning("%s", payload)
-    logger.warning("")
-    logger.warning("PAYLOAD DETALLADO:")
-    if isinstance(payload, dict):
-        for key, value in payload.items():
-            logger.warning("  - %s: %s", key, value)
-    logger.warning("=" * 80)
 
     # Only process payment webhooks, ignore merchant_order and others
     notification_type = payload.get("type") or payload.get("topic")
     if notification_type != "payment":
-        logger.warning(
+        logger.info(
             "Ignoring webhook type '%s' (only processing 'payment' webhooks)",
-            notification_type
+            notification_type,
         )
-        return {"status": "ignored", "reason": f"unsupported_type_{notification_type}", "received": True}
+        return {
+            "status": "ignored",
+            "reason": f"unsupported_type_{notification_type}",
+            "received": True,
+        }
 
     # Process webhook
     try:
         result = await process_webhook(db=db, payload=payload)
-        logger.info("Webhook processed successfully: %s", result)
-        logger.warning("=" * 80)
         return {"status": "processed", "received": True, **result}
     except Exception as exc:
         logger.exception("Webhook processing error: %s", exc)
         # IMPORTANT: Always return 200 to avoid MercadoPago retries
         # The webhook will be retried by MP on its own schedule if needed
-        logger.warning("=" * 80)
+        return {
+            "status": "error",
+            "reason": str(exc),
+            "received": True,
+        }
+
+    # Process webhook
+    try:
+        result = await process_webhook(db=db, payload=payload)
+        return {"status": "processed", "received": True, **result}
+    except Exception as exc:
+        logger.exception("Webhook processing error: %s", exc)
+        # IMPORTANT: Always return 200 to avoid MercadoPago retries
+        # The webhook will be retried by MP on its own schedule if needed
         return {
             "status": "error",
             "reason": str(exc),
@@ -268,28 +259,11 @@ async def get_payment_status(
     Returns:
         Dict with payment details in the format expected by the frontend.
     """
-    # ==========================================
-    # LOGS DE DEBUGGING PARA STATUS
-    # ==========================================
-    logger.warning("=" * 80)
-    logger.warning("BUSCANDO PAYMENT ID: %s", payment_id)
-    logger.warning("  - Tipo: %s", type(payment_id))
-    logger.warning("  - Longitud: %s caracteres", len(payment_id))
-
     # Try to find payment by mercadopago_payment_id first
     result = await db.execute(
         select(Payment).where(Payment.mercadopago_payment_id == payment_id)
     )
     payment = result.scalar_one_or_none()
-
-    if payment:
-        logger.warning("  - Encontrado por mercadopago_payment_id ✅")
-        logger.warning("  - DB ID: %s", payment.id)
-        logger.warning("  - Status: %s", payment.status)
-        logger.warning("  - MP Payment ID actual: %s", payment.mercadopago_payment_id)
-        logger.warning("  - MP Preference ID: %s", payment.mercadopago_preference_id)
-    else:
-        logger.warning("  - NO encontrado por mercadopago_payment_id ❌")
 
     # If not found, try by preference_id (for legacy support)
     if not payment:
@@ -298,56 +272,30 @@ async def get_payment_status(
         )
         payment = result.scalar_one_or_none()
 
-        if payment:
-            logger.warning("  - Encontrado por mercadopago_preference_id ✅")
-            logger.warning("  - DB ID: %s", payment.id)
-            logger.warning("  - Status: %s", payment.status)
-            logger.warning("  - MP Preference ID: %s", payment.mercadopago_preference_id)
-        else:
-            logger.warning("  - NO encontrado por mercadopago_preference_id ❌")
-            logger.warning("  - Buscando en TODOS los pagos recientes...")
-            # Mostrar todos los pagos recientes para debug
-            all_payments = await db.execute(
-                select(Payment).order_by(Payment.created_at.desc()).limit(5)
-            )
-            for p in all_payments.scalars().all():
-                logger.warning("    - Payment DB ID: %s", p.id)
-                logger.warning("      MercadoPago Preference ID: %s", p.mercadopago_preference_id)
-                logger.warning("      MercadoPago Payment ID: %s", p.mercadopago_payment_id)
-                logger.warning("      User ID: %s", p.user_id)
-
-    logger.warning("=" * 80)
-
     if not payment:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Payment not found.",
         )
 
-    # ==========================================
-    # SYNC CON MERCADO PAGO
-    # ==========================================
     # Si tenemos preference_id pero no payment_id, consultar a Mercado Pago directamente
     if payment.mercadopago_preference_id and not payment.mercadopago_payment_id:
-        logger.warning("  - Tenemos preference_id pero NO payment_id")
-        logger.warning("  - Consultando a Mercado Pago API para obtener payment_id...")
-
         try:
             from app.payments.use_case.client import _get_mp_client
-            from app.payments.use_case.webhook.status_syncer import sync_payment_status_from_mp
+            from app.payments.use_case.webhook.status_syncer import (
+                sync_payment_status_from_mp,
+            )
 
             mp = _get_mp_client()
             # Buscar pagos por preference_id
-            mp_response = mp.payment().search({"preference_id": payment.mercadopago_preference_id})
-
-            logger.warning("  - Mercado Pago response: %s", mp_response)
+            mp_response = mp.payment().search(
+                {"preference_id": payment.mercadopago_preference_id}
+            )
 
             if mp_response and mp_response.get("results"):
                 payments_list = mp_response["results"]
                 if payments_list and len(payments_list) > 0:
                     latest_payment = payments_list[0]
-                    logger.warning("  - Payment ID encontrado en Mercado Pago: %s", latest_payment.get("id"))
-                    logger.warning("  - Status en Mercado Pago: %s", latest_payment.get("status"))
 
                     # Actualizar el payment en DB con el payment_id de Mercado Pago
                     payment.mercadopago_payment_id = str(latest_payment["id"])
@@ -363,17 +311,17 @@ async def get_payment_status(
                         payment.status = PaymentStatus.PENDING
 
                     await db.commit()
-
-                    logger.warning("  - Payment actualizado en DB")
-                    logger.warning("  - Nuevo Status: %s", payment.status)
         except Exception as exc:
-            logger.exception("Error consultando Mercado Pago API: %s", exc)
+            logger.warning("Error consultando Mercado Pago API: %s", exc)
 
     # Sync status from MercadoPago for accuracy
     if payment.mercadopago_payment_id:
         try:
             from app.payments.services import _sync_payment_status_from_mp
-            await _sync_payment_status_from_mp(db, payment, payment.mercadopago_payment_id)
+
+            await _sync_payment_status_from_mp(
+                db, payment, payment.mercadopago_payment_id
+            )
         except Exception as exc:
             logger.warning(
                 "Failed to sync payment %s from MercadoPago: %s",
@@ -383,18 +331,14 @@ async def get_payment_status(
 
     # Return in the format expected by the frontend
     response_dict = {
-        "paymentId": payment.mercadopago_preference_id or payment.mercadopago_payment_id,
+        "paymentId": payment.mercadopago_preference_id
+        or payment.mercadopago_payment_id,
         "status": payment.status.value if payment.status else "pending",
         "amount": float(payment.amount) if payment.amount else 0.0,
         "currency": str(payment.currency) if payment.currency else "PEN",
-    "dateApproved": None,  # Could be added from Mercado Pago response
+        "dateApproved": None,  # Could be added from Mercado Pago response
         "payerEmail": None,  # Could be added from Mercado Pago response
     }
-
-    logger.warning("RESPUESTA ENVIADA AL FRONTEND:")
-    logger.warning("  - paymentId: %s", response_dict["paymentId"])
-    logger.warning("  - status: %s", response_dict["status"])
-    logger.warning("=" * 80)
 
     return response_dict
 

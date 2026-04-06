@@ -41,11 +41,6 @@ async def find_payment_by_webhook_data(
     payment = result.scalar_one_or_none()
 
     if payment:
-        logger.info(
-            "✅ Found payment by mercadopago_payment_id: %s (payment_id=%s)",
-            payment.id,
-            mp_payment_id,
-        )
         return payment, payment.mercadopago_preference_id, payment.external_reference
 
     # Strategy 2: Fetch payment details from Mercado Pago to get preference_id and external_reference
@@ -60,32 +55,15 @@ async def find_payment_by_webhook_data(
         payment = result.scalar_one_or_none()
 
         if payment:
-            logger.info(
-                "✅ Found payment by preference_id: %s (preference_id=%s, payment_id=%s)",
-                payment.id,
-                preference_id,
-                mp_payment_id,
-            )
-
             # Update the payment_id if it's not set (for faster future lookups)
             if not payment.mercadopago_payment_id:
                 payment.mercadopago_payment_id = mp_payment_id
                 await db.flush()
-                logger.info(
-                    "📝 Updated payment %s with MP payment_id: %s",
-                    payment.id,
-                    mp_payment_id,
-                )
 
             # Update external_reference if it's not set
             if not payment.external_reference and external_reference:
                 payment.external_reference = external_reference
                 await db.flush()
-                logger.info(
-                    "📝 Updated payment %s with external_reference: %s",
-                    payment.id,
-                    external_reference,
-                )
 
             return payment, preference_id, external_reference
 
@@ -99,39 +77,27 @@ async def find_payment_by_webhook_data(
         if payments:
             # If multiple payments found, pick the most recent one without mercadopago_payment_id
             # This handles the case where a user created multiple pending payments
-            payment = sorted(
-                [p for p in payments if not p.mercadopago_payment_id],
-                key=lambda x: x.created_at if hasattr(x, 'created_at') else None,
-                reverse=True
-            )[0] if any(not p.mercadopago_payment_id for p in payments) else None
+            payment = (
+                sorted(
+                    [p for p in payments if not p.mercadopago_payment_id],
+                    key=lambda x: x.created_at if hasattr(x, "created_at") else None,
+                    reverse=True,
+                )[0]
+                if any(not p.mercadopago_payment_id for p in payments)
+                else None
+            )
 
             if payment:
-                logger.info(
-                    "✅ Found payment by external_reference: %s (external_reference=%s, payment_id=%s)",
-                    payment.id,
-                    external_reference,
-                    mp_payment_id,
-                )
-
                 # Update the payment_id if it's not set (for faster future lookups)
                 if not payment.mercadopago_payment_id:
                     payment.mercadopago_payment_id = mp_payment_id
                     await db.flush()
-                    logger.info(
-                        "📝 Updated payment %s with MP payment_id: %s",
-                        payment.id,
-                        mp_payment_id,
-                    )
 
                 return payment, preference_id, external_reference
 
     # Payment not found
     logger.warning(
-        "❌ Payment not found for MP payment_id: %s",
-        mp_payment_id,
-    )
-    logger.warning(
-        "   Searched by: mercadopago_payment_id=%s, preference_id=%s, external_reference=%s",
+        "Payment not found for MP payment_id: %s (preference_id=%s, external_reference=%s)",
         mp_payment_id,
         preference_id,
         external_reference,

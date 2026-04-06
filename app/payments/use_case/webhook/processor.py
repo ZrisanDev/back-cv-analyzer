@@ -40,13 +40,11 @@ async def process_webhook(
     """
     notification_type = payload.get("type") or payload.get("topic")
 
-    logger.info("Processing webhook notification type: %s", notification_type)
-
     # Only process payment webhooks, ignore merchant_order for now
     if notification_type != "payment":
-        logger.warning(
+        logger.info(
             "Ignoring webhook type '%s' (only processing 'payment' webhooks)",
-            notification_type
+            notification_type,
         )
         return {
             "status": "ignored",
@@ -70,7 +68,9 @@ async def process_webhook(
     mp_payment_id_str = str(mp_payment_id)
 
     # Find payment record using the MP payment_id from webhook
-    payment, preference_id, external_reference = await find_payment_by_webhook_data(db, mp_payment_id_str)
+    payment, preference_id, external_reference = await find_payment_by_webhook_data(
+        db, mp_payment_id_str
+    )
 
     if payment is None:
         logger.warning(

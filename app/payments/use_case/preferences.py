@@ -33,15 +33,15 @@ async def _build_and_create_mp_preference(
     amount: float,
     package_type: CreditPackageType | None = None,
 ) -> PreferenceResponse:
-    """Build MercadoPago preference payload, call the API, persist Payment, and return response.
+    """Build MercadoPago preference payload, call API, persist Payment, and return response.
 
-    This is the shared core that eliminates duplication between single-analysis
+    This is shared core that eliminates duplication between single-analysis
     and credit-package preference creation.
 
     Args:
         db: Async database session.
-        user_id: UUID of the authenticated user.
-        title: Human-readable item title for the MercadoPago preference.
+        user_id: UUID of authenticated user.
+        title: Human-readable item title for MercadoPago preference.
         amount: Price in USD.
         package_type: Credit package type if this is a package purchase, None for single analysis.
 
@@ -50,7 +50,7 @@ async def _build_and_create_mp_preference(
 
     Raises:
         HTTPException 503: If MercadoPago is not configured.
-        HTTPException 502: If the MercadoPago API call fails or returns invalid data.
+        HTTPException 502: If MercadoPago API call fails or returns invalid data.
     """
     mp = _get_mp_client()
 
@@ -65,7 +65,7 @@ async def _build_and_create_mp_preference(
         "items": [
             {
                 "title": title,
-                "quantity":1,
+                "quantity": 1,
                 "unit_price": amount_pen,  # Already rounded float
                 "currency_id": "PEN",  # Force PEN currency for Peru
             }
@@ -83,22 +83,6 @@ async def _build_and_create_mp_preference(
     if settings.mercadopago_webhook_url:
         preference_data["notification_url"] = settings.mercadopago_webhook_url
 
-    # ==== DETAILED LOGS FOR DEBUGGING ====
-    logger.warning("=" * 80)
-    logger.warning("MERCADO PAGO - ENVIANDO PREFERENCIA:")
-    logger.warning("=" * 80)
-    logger.warning("JSON enviado a Mercado Pago API:")
-    logger.warning("%s", preference_data)
-    logger.warning("Detalles:")
-    logger.warning("  - Usuario ID: %s", user_id)
-    logger.warning("  - Título: %s", title)
-    logger.warning("  - Monto USD: %s", amount)
-    logger.warning("  - Monto PEN (convertido): %s", amount_pen)
-    logger.warning("  - Tasa de cambio: 1 USD = %s PEN", PEN_TO_USD_RATE)
-    logger.warning("  - Moneda: PEN")
-    logger.warning("  - Auto return: approved")
-    logger.warning("=" * 80)
-
     logger.info(
         "Creating MercadoPago preference: title=%s, amount=%s PEN (%s USD)",
         title,
@@ -106,27 +90,10 @@ async def _build_and_create_mp_preference(
         amount,
     )
 
-    logger.info(
-        "Creating MercadoPago preference with base_url: %s",
-        settings.frontend_base_url,
-    )
-    logger.info(
-        "Back URLs: %s",
-        preference_data.get("back_urls"),
-    )
-
     try:
-        logger.warning("Llamando a Mercado Pago API...")
         mp_response = mp.preference().create(preference_data)
-        logger.warning("=" * 80)
-        logger.warning("MERCADO PAGO - RESPUESTA RECIBIDA:")
-        logger.warning("=" * 80)
-        logger.warning("Status HTTP: %s", mp_response.get("status"))
-        logger.warning("Response completo:")
-        logger.warning("%s", mp_response)
-        logger.warning("=" * 80)
     except Exception as exc:
-        logger.exception("MercadoPago API error while creating preference")
+        logger.warning("MercadoPago API error while creating preference: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to create payment preference: {exc}",
@@ -146,17 +113,6 @@ async def _build_and_create_mp_preference(
     init_point = mp_data.get("init_point", "")
     sandbox_init_point = mp_data.get("sandbox_init_point", "")
 
-    logger.warning("DATOS DE LA PREFERENCIA:")
-    logger.warning("  - Preference ID: %s", preference_id)
-    logger.warning("  - Site ID: %s", mp_data.get("site_id"))
-    logger.warning("  - Currency ID: %s", mp_data.get("items", [{}])[0].get("currency_id") if mp_data.get("items") else "N/A")
-    logger.warning("  - Unit Price: %s %s", mp_data.get("items", [{}])[0].get("unit_price") if mp_data.get("items") else "N/A", mp_data.get("items", [{}])[0].get("currency_id") if mp_data.get("items") else "N/A")
-    logger.warning("")
-    logger.warning("URLs:")
-    logger.warning("  - Init Point (PROD): %s", init_point)
-    logger.warning("  - Sandbox Init Point (SANDBOX): %s", sandbox_init_point)
-    logger.warning("=" * 80)
-
     if not preference_id:
         logger.error("MercadoPago response missing id. Full response: %s", mp_data)
         raise HTTPException(
@@ -167,15 +123,6 @@ async def _build_and_create_mp_preference(
     # Use sandbox URL if available (for testing with sandbox credentials)
     # Sandbox credentials start with APP_USR-
     payment_url = sandbox_init_point if sandbox_init_point else init_point
-
-    logger.warning("")
-    logger.warning("=" * 80)
-    logger.warning("URL FINAL PARA PAGO:")
-    logger.warning("=" * 80)
-    logger.warning(payment_url)
-    logger.warning("")
-    logger.warning("Usando SANDBOX: %s", "SI ✅" if sandbox_init_point else "NO ❌")
-    logger.warning("=" * 80)
 
     if not payment_url:
         logger.error(
@@ -195,13 +142,17 @@ async def _build_and_create_mp_preference(
         status=PaymentStatus.PENDING,
         mercadopago_preference_id=str(preference_id),
         package_type=package_type,
-        external_reference=str(user_id),  # Store the external_reference for webhook matching
+        external_reference=str(
+            user_id
+        ),  # Store external_reference for webhook matching
     )
     db.add(payment)
     await db.flush()
     await db.refresh(payment)
 
-    api_package_type = APICreditPackageType(package_type.value) if package_type else None
+    api_package_type = (
+        APICreditPackageType(package_type.value) if package_type else None
+    )
 
     return PreferenceResponse(
         preference_id=str(preference_id),
@@ -221,11 +172,11 @@ async def create_preference(
 
     Args:
         db: Async database session.
-        user_id: UUID of the authenticated user.
+        user_id: UUID of authenticated user.
         amount: Optional custom amount. Falls back to ``ANALYSIS_PRICE_USD``.
 
     Returns:
-        PreferenceResponse with the preference ID and payment URL.
+        PreferenceResponse with preference ID and payment URL.
 
     Raises:
         HTTPException 503: If MercadoPago is not configured.
@@ -251,7 +202,7 @@ async def create_credit_package_preference(
 
     Args:
         db: Async database session.
-        user_id: UUID of the authenticated user.
+        user_id: UUID of authenticated user.
         package_type: Type of credit package to purchase.
 
     Returns:
@@ -284,9 +235,7 @@ async def create_credit_package_preference(
         CreditPackageType.pack_100: "Pack 100 Analisis de CV",
     }
 
-    title = title_map.get(
-        package_type, f"{package_type.value} Analisis de CV"
-    )
+    title = title_map.get(package_type, f"{package_type.value} Analisis de CV")
 
     return await _build_and_create_mp_preference(
         db=db,
