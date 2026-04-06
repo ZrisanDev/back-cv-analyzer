@@ -13,11 +13,6 @@ from playwright.async_api import async_playwright
 from pypdf import PdfReader
 
 logger = logging.getLogger(__name__)
-logger.error("="*80)
-logger.error("🔥🔥🔥 ANALYSIS MODULE LOADED - VERSION 2025-04-06 - SHOULD FALLBACK TO GROQ 🔥🔥🔥")
-logger.error("="*80)
-
-logger = logging.getLogger(__name__)
 
 # ── Playwright Configuration ────────────────────────────────
 

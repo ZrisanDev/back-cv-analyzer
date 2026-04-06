@@ -21,9 +21,6 @@ from app.ai.schemas import AnalysisResponse
 from app.shared.config import settings
 
 logger = logging.getLogger(__name__)
-logger.error("="*80)
-logger.error("🔥🔥🔥 AI SERVICE MODULE LOADED - VERSION 2025-04-06 - GROQ IS SECOND PROVIDER 🔥🔥🔥")
-logger.error("="*80)
 
 # ── Health tracking ────────────────────────────────────────────────────
 
